@@ -287,6 +287,7 @@ kbfunc_menu_exec(struct client_ctx *cc, union arg *arg)
 	struct menu		*mi;
 	struct menu_q		 menuq;
 	int			 l, i, cmd = arg->i;
+	struct stat		 sb;
 
 	switch (cmd) {
 	case CWM_MENU_EXEC:
@@ -317,14 +318,19 @@ kbfunc_menu_exec(struct client_ctx *cc, union arg *arg)
 			continue;
 
 		while ((dp = readdir(dirp)) != NULL) {
-			/* skip everything but regular files and symlinks */
-			if (dp->d_type != DT_REG && dp->d_type != DT_LNK)
-				continue;
 			(void)memset(tpath, '\0', sizeof(tpath));
 			l = snprintf(tpath, sizeof(tpath), "%s/%s", paths[i],
 			    dp->d_name);
 			if (l == -1 || l >= sizeof(tpath))
 				continue;
+			/* skip everything but regular files and symlinks */
+			if (dp->d_type != DT_REG && dp->d_type != DT_LNK) {
+				/* use an additional stat-based check in case d_type isn't supported */
+				if (lstat(tpath, &sb) < 0)
+					continue;
+				if (!S_ISREG(sb.st_mode) && !S_ISLNK(sb.st_mode))
+					continue;
+			}
 			if (access(tpath, X_OK) == 0)
 				menuq_add(&menuq, NULL, "%s", dp->d_name);
 		}
@@ -366,7 +372,7 @@ kbfunc_menu_ssh(struct client_ctx *cc, union arg *arg)
 	struct menu_q		 menuq;
 	FILE			*fp;
 	char			*buf, *lbuf, *p;
-	char			 hostbuf[HOST_NAME_MAX+1];
+	char			 hostbuf[_POSIX_HOST_NAME_MAX+1];
 	char			 path[PATH_MAX];
 	long			 color = 0;
 	char			 colorarg[32];

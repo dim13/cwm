@@ -12,13 +12,13 @@ SRCS=		calmwm.c screen.c xmalloc.c client.c menu.c \
 OBJS=		calmwm.o screen.o xmalloc.o client.o menu.o \
 		search.o util.o xutil.o conf.o xevents.o group.o \
 		kbfunc.o mousefunc.o strlcpy.o strlcat.o y.tab.o \
-		strtonum.o fgetln.o colorize.o
+		strtonum.o fgetln.o reallocarray.o colorize.o
 
-CPPFLAGS+=	`pkg-config --cflags fontconfig x11 xft xinerama xrandr`
+CPPFLAGS+=	`pkg-config --cflags fontconfig x11 xft xrandr`
 
 CFLAGS?=	-Wall -O2 -g -D_GNU_SOURCE
 
-LDFLAGS+=	`pkg-config --libs fontconfig x11 xft xinerama xrandr`
+LDFLAGS+=	`pkg-config --libs fontconfig x11 xft xrandr`
 
 MANPREFIX?=	${PREFIX}/share/man
 
