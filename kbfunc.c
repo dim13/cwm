@@ -423,7 +423,7 @@ menu:
 		if (Conf.flags & CONF_COLORIZE_SSH) {
 			color = crc24(mi->text);
 			l = snprintf(colorarg, sizeof(colorarg),
-			    " -fg #%.6x -bg #%.6x", tint(color), shade(color));
+			    " -fg #%.6lx -bg #%.6lx", tint(color), shade(color));
 			if (l == -1 || l >= sizeof(colorarg))
 				goto out;
 		}
