@@ -1,0 +1,11 @@
+language: c
+addons:
+  apt:
+    packages:
+      - pkg-config
+      - bison
+      - libfontconfig1-dev
+      - libx11-dev
+      - libxft-dev
+      - libxrandr-dev
+script: make
