@@ -35,7 +35,7 @@ void
 screen_init(int which)
 {
 	struct screen_ctx	*sc;
-	Window			*wins, w0, w1;
+	Window			*wins, w0, w1, active = None;
 	XSetWindowAttributes	 rootattr;
 	unsigned int		 nwins, i;
 
@@ -57,7 +57,7 @@ screen_init(int which)
 
 	screen_update_geometry(sc);
 
-	for (i = 0; i < CALMWM_NGROUPS; i++)
+	for (i = 0; i < Conf.ngroups; i++)
 		group_init(sc, i);
 
 	xu_ewmh_net_desktop_names(sc);
@@ -65,6 +65,7 @@ screen_init(int which)
 	xu_ewmh_net_wm_number_of_desktops(sc);
 	xu_ewmh_net_showing_desktop(sc);
 	xu_ewmh_net_virtual_roots(sc);
+	active = xu_ewmh_get_net_active_window(sc);
 
 	rootattr.cursor = Conf.cursor[CF_NORMAL];
 	rootattr.event_mask = SubstructureRedirectMask |
@@ -77,13 +78,13 @@ screen_init(int which)
 	/* Deal with existing clients. */
 	if (XQueryTree(X_Dpy, sc->rootwin, &w0, &w1, &wins, &nwins)) {
 		for (i = 0; i < nwins; i++)
-			(void)client_init(wins[i], sc);
+			(void)client_init(wins[i], sc, (active == wins[i]));
 
 		XFree(wins);
 	}
 	screen_updatestackingorder(sc);
 
-	if (HasRandr)
+	if (Conf.xrandr)
 		XRRSelectInput(X_Dpy, sc->rootwin, RRScreenChangeNotifyMask);
 
 	TAILQ_INSERT_TAIL(&Screenq, sc, entry);
@@ -100,7 +101,7 @@ screen_find(Window win)
 		if (sc->rootwin == win)
 			return(sc);
 	}
-	warnx("screen_find failure win 0x%lu\n", win);
+	warnx("%s: failure win 0x%lu\n", __func__, win);
 	return(NULL);
 }
 
@@ -139,7 +140,7 @@ region_find(struct screen_ctx *sc, int x, int y)
 }
 
 struct geom
-screen_area(struct screen_ctx *sc, int x, int y, int flags)
+screen_area(struct screen_ctx *sc, int x, int y, enum apply_gap apply_gap)
 {
 	struct region_ctx	*rc;
 	struct geom		 area = sc->work;
@@ -151,7 +152,7 @@ screen_area(struct screen_ctx *sc, int x, int y, int flags)
 			break;
 		}
 	}
-	if (flags & CWM_GAP)
+	if (apply_gap)
 		area = screen_apply_gap(sc, area);
 	return(area);
 }
@@ -172,7 +173,7 @@ screen_update_geometry(struct screen_ctx *sc)
 		free(rc);
 	}
 
-	if (HasRandr) {
+	if (Conf.xrandr) {
 		XRRScreenResources *sr;
 		XRRCrtcInfo *ci;
 		int i;
@@ -227,4 +228,27 @@ screen_apply_gap(struct screen_ctx *sc, struct geom geom)
 	geom.h -= (sc->gap.top + sc->gap.bottom);
 
 	return(geom);
+}
+
+/* Bring back clients which are beyond the screen. */
+void
+screen_assert_clients_within(struct screen_ctx *sc)
+{
+	struct client_ctx	*cc;
+	int			 top, left, right, bottom;
+
+	TAILQ_FOREACH(cc, &sc->clientq, entry) {
+		if (cc->sc != sc)
+			continue;
+		top = cc->geom.y;
+		left = cc->geom.x;
+		right = cc->geom.x + cc->geom.w + (cc->bwidth * 2) - 1;
+		bottom = cc->geom.y + cc->geom.h + (cc->bwidth * 2) - 1;
+		if ((top > sc->view.h || left > sc->view.w) ||
+		    (bottom < 0 || right < 0)) {
+			cc->geom.x = sc->gap.left;
+			cc->geom.y = sc->gap.top;
+			client_move(cc);
+		}
+	}
 }

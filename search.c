@@ -36,10 +36,8 @@
 #define PATH_ANY 	0x0001
 #define PATH_EXEC 	0x0002
 
-static void	search_match_path(struct menu_q *, struct menu_q *,
+static void	search_match_path_type(struct menu_q *, struct menu_q *,
 		    char *, int);
-static void	search_match_path_exec(struct menu_q *, struct menu_q *,
-		    char *);
 static int	strsubmatch(char *, char *, int);
 
 void
@@ -52,57 +50,40 @@ search_match_client(struct menu_q *menuq, struct menu_q *resultq, char *search)
 
 	(void)memset(tierp, 0, sizeof(tierp));
 
-	/*
-	 * In order of rank:
-	 *
-	 *   1. Look through labels.
-	 *   2. Look at title history, from present to past.
-	 *   3. Look at window class name.
-	 */
-
 	TAILQ_FOREACH(mi, menuq, entry) {
 		int tier = -1, t;
 		struct client_ctx *cc = (struct client_ctx *)mi->ctx;
 
-		/* First, try to match on labels. */
-		if (cc->label != NULL && strsubmatch(search, cc->label, 0)) {
-			cc->matchname = cc->label;
+		/* Match on label. */
+		if (strsubmatch(search, cc->label, 0))
 			tier = 0;
-		}
 
-		/* Then, on window names. */
+		/* Match on window name history, from present to past. */
 		if (tier < 0) {
-			TAILQ_FOREACH_REVERSE(wn, &cc->nameq, winname_q, entry)
+			TAILQ_FOREACH_REVERSE(wn, &cc->nameq, name_q, entry)
 				if (strsubmatch(search, wn->name, 0)) {
-					cc->matchname = wn->name;
 					tier = 2;
 					break;
 				}
 		}
 
-		/* Then if there is a match on the window class name. */
-		if (tier < 0 && strsubmatch(search, cc->ch.res_class, 0)) {
-			cc->matchname = cc->ch.res_class;
+		/* Match on window resource class. */
+		if ((tier < 0) && strsubmatch(search, cc->ch.res_class, 0))
 			tier = 3;
-		}
 
 		if (tier < 0)
 			continue;
 
-		/*
-		 * De-rank a client one tier if it's the current
-		 * window.  Furthermore, this is denoted by a "!" when
-		 * printing the window name in the search menu.
-		 */
-		if (cc == client_current() && tier < nitems(tierp) - 1)
+		/* Current window is ranked down. */
+		if ((tier < nitems(tierp) - 1) && (cc->flags & CLIENT_ACTIVE))
 			tier++;
 
-		/* Clients that are hidden get ranked one up. */
-		if ((cc->flags & CLIENT_HIDDEN) && (tier > 0))
+		/* Hidden window is ranked up. */
+		if ((tier > 0) && (cc->flags & CLIENT_HIDDEN))
 			tier--;
 
 		if (tier >= nitems(tierp))
-			errx(1, "search_match_client: invalid tier");
+			errx(1, "%s: invalid tier", __func__);
 
 		/*
 		 * If you have a tierp, insert after it, and make it
@@ -124,15 +105,21 @@ search_match_client(struct menu_q *menuq, struct menu_q *resultq, char *search)
 }
 
 void
-search_print_cmd(struct menu *mi, int i)
+search_print_text(struct menu *mi, int listing)
 {
-	struct cmd	*cmd = (struct cmd *)mi->ctx;
+	(void)snprintf(mi->print, sizeof(mi->print), "%s", mi->text);
+}
+
+void
+search_print_cmd(struct menu *mi, int listing)
+{
+	struct cmd_ctx	*cmd = (struct cmd_ctx *)mi->ctx;
 
 	(void)snprintf(mi->print, sizeof(mi->print), "%s", cmd->name);
 }
 
 void
-search_print_group(struct menu *mi, int i)
+search_print_group(struct menu *mi, int listing)
 {
 	struct group_ctx	*gc = (struct group_ctx *)mi->ctx;
 
@@ -142,26 +129,24 @@ search_print_group(struct menu *mi, int i)
 }
 
 void
-search_print_client(struct menu *mi, int list)
+search_print_client(struct menu *mi, int listing)
 {
 	struct client_ctx	*cc = (struct client_ctx *)mi->ctx;
 	char			 flag = ' ';
 
-	if (cc == client_current())
+	if (cc->flags & CLIENT_ACTIVE)
 		flag = '!';
 	else if (cc->flags & CLIENT_HIDDEN)
 		flag = '&';
 
-	if ((list) || (cc->matchname == cc->label))
-		cc->matchname = cc->name;
-
 	(void)snprintf(mi->print, sizeof(mi->print), "(%d) %c[%s] %s",
 	    (cc->gc) ? cc->gc->num : 0, flag,
-	    (cc->label) ? cc->label : "", cc->matchname);
+	    (cc->label) ? cc->label : "", cc->name);
 }
 
 static void
-search_match_path(struct menu_q *menuq, struct menu_q *resultq, char *search, int flag)
+search_match_path_type(struct menu_q *menuq, struct menu_q *resultq,
+    char *search, int flag)
 {
 	char 	 pattern[PATH_MAX];
 	glob_t	 g;
@@ -182,16 +167,10 @@ search_match_path(struct menu_q *menuq, struct menu_q *resultq, char *search, in
 	globfree(&g);
 }
 
-static void
-search_match_path_exec(struct menu_q *menuq, struct menu_q *resultq, char *search)
-{
-	return(search_match_path(menuq, resultq, search, PATH_EXEC));
-}
-
 void
-search_match_path_any(struct menu_q *menuq, struct menu_q *resultq, char *search)
+search_match_path(struct menu_q *menuq, struct menu_q *resultq, char *search)
 {
-	return(search_match_path(menuq, resultq, search, PATH_ANY));
+	return(search_match_path_type(menuq, resultq, search, PATH_ANY));
 }
 
 void
@@ -228,14 +207,9 @@ search_match_exec(struct menu_q *menuq, struct menu_q *resultq, char *search)
 		if (mj == NULL)
 			TAILQ_INSERT_TAIL(resultq, mi, resultentry);
 	}
-}
 
-void
-search_match_exec_path(struct menu_q *menuq, struct menu_q *resultq, char *search)
-{
-	search_match_exec(menuq, resultq, search);
 	if (TAILQ_EMPTY(resultq))
-		search_match_path_exec(menuq, resultq, search);
+		search_match_path_type(menuq, resultq, search, PATH_EXEC);
 }
 
 static int
