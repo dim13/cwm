@@ -134,7 +134,9 @@ search_print_client(struct menu *mi, int listing)
 	struct client_ctx	*cc = (struct client_ctx *)mi->ctx;
 	char			 flag = ' ';
 
-	if (cc->flags & CLIENT_ACTIVE)
+	if (cc->flags & CLIENT_URGENCY)
+		flag = '*';
+	else if (cc->flags & CLIENT_ACTIVE)
 		flag = '!';
 	else if (cc->flags & CLIENT_HIDDEN)
 		flag = '&';
