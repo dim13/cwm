@@ -100,7 +100,7 @@ client_init(Window win, struct screen_ctx *sc, int active)
 
 	if (wattr.map_state != IsViewable) {
 		client_placecalc(cc);
-		client_move(cc);
+		client_resize(cc, 0);
 		if ((cc->wmh) && (cc->wmh->flags & StateHint))
 			client_set_wm_state(cc, cc->wmh->initial_state);
 	} else {
@@ -471,6 +471,24 @@ client_config(struct client_ctx *cc)
 }
 
 void
+client_ptr_inbound(struct client_ctx *cc, int getpos)
+{
+	if (getpos)
+		xu_ptr_getpos(cc->win, &cc->ptr.x, &cc->ptr.y);
+
+	if (cc->ptr.x < 0)
+		cc->ptr.x = 0;
+	else if (cc->ptr.x > cc->geom.w - 1)
+		cc->ptr.x = cc->geom.w - 1;
+	if (cc->ptr.y < 0)
+		cc->ptr.y = 0;
+	else if (cc->ptr.y > cc->geom.h - 1)
+		cc->ptr.y = cc->geom.h - 1;
+
+	client_ptrwarp(cc);
+}
+
+void
 client_ptrwarp(struct client_ctx *cc)
 {
 	xu_ptr_setpos(cc->win, cc->ptr.x, cc->ptr.y);
@@ -545,7 +563,7 @@ client_draw_border(struct client_ctx *cc)
 	if (cc->flags & CLIENT_URGENCY)
 		pixel = sc->xftcolor[CWM_COLOR_BORDER_URGENCY].pixel;
 
-	XSetWindowBorderWidth(X_Dpy, cc->win, cc->bwidth);
+	XSetWindowBorderWidth(X_Dpy, cc->win, (unsigned int)cc->bwidth);
 	XSetWindowBorder(X_Dpy, cc->win, pixel);
 }
 
@@ -645,7 +663,7 @@ match:
 void
 client_cycle(struct screen_ctx *sc, int flags)
 {
-	struct client_ctx	*newcc, *oldcc;
+	struct client_ctx	*newcc, *oldcc, *prevcc;
 	int			 again = 1;
 
 	/* For X apps that ignore events. */
@@ -655,6 +673,7 @@ client_cycle(struct screen_ctx *sc, int flags)
 	if (TAILQ_EMPTY(&sc->clientq))
 		return;
 
+	prevcc = TAILQ_FIRST(&sc->clientq);
 	oldcc = client_current();
 	if (oldcc == NULL)
 		oldcc = (flags & CWM_CYCLE_REVERSE) ?
@@ -686,6 +705,7 @@ client_cycle(struct screen_ctx *sc, int flags)
 	/* reset when cycling mod is released. XXX I hate this hack */
 	sc->cycling = 1;
 	client_ptrsave(oldcc);
+	client_raise(prevcc);
 	client_raise(newcc);
 	if (!client_inbound(newcc, newcc->ptr.x, newcc->ptr.y)) {
 		newcc->ptr.x = newcc->geom.w / 2;
@@ -741,14 +761,14 @@ client_placecalc(struct client_ctx *cc)
 		wmax = DisplayWidth(X_Dpy, sc->which);
 		hmax = DisplayHeight(X_Dpy, sc->which);
 
-		if (cc->geom.x + ((int)cc->bwidth * 2) >= wmax)
-			cc->geom.x = wmax - (cc->bwidth * 2);
-		if (cc->geom.x + cc->geom.w - ((int)cc->bwidth * 2) < 0)
-			cc->geom.x = -cc->geom.w;
-		if (cc->geom.y + ((int)cc->bwidth * 2) >= hmax)
-			cc->geom.y = hmax - (cc->bwidth * 2);
-		if (cc->geom.y + cc->geom.h - ((int)cc->bwidth * 2) < 0)
-			cc->geom.y = -cc->geom.h;
+		if (cc->geom.x >= wmax)
+			cc->geom.x = wmax - cc->bwidth - 1;
+		if (cc->geom.x + cc->geom.w + cc->bwidth <= 0)
+			cc->geom.x = -(cc->geom.w + cc->bwidth - 1);
+		if (cc->geom.y >= hmax)
+			cc->geom.x = hmax - cc->bwidth - 1;
+		if (cc->geom.y + cc->geom.h + cc->bwidth <= 0)
+			cc->geom.y = -(cc->geom.h + cc->bwidth - 1);
 	} else {
 		struct geom		 area;
 		int			 xmouse, ymouse;
@@ -956,7 +976,7 @@ client_htile(struct client_ctx *cc)
 	struct group_ctx 	*gc = cc->gc;
 	struct screen_ctx 	*sc = cc->sc;
 	struct geom 		 area;
-	int 			 i, n, mh, x, h, w;
+	int 			 i, n, mh, x, w, h;
 
 	if (!gc)
 		return;
@@ -983,6 +1003,7 @@ client_htile(struct client_ctx *cc)
 	cc->geom.x = area.x;
 	cc->geom.y = area.y;
 	cc->geom.w = area.w - (cc->bwidth * 2);
+	cc->geom.h = (area.h - (cc->bwidth * 2)) / 2;
 	client_resize(cc, 1);
 	client_ptrwarp(cc);
 
@@ -995,16 +1016,16 @@ client_htile(struct client_ctx *cc)
 		    ci->flags & CLIENT_IGNORE || (ci == cc))
 			continue;
 		ci->bwidth = Conf.bwidth;
-		ci->geom.y = area.y + mh;
 		ci->geom.x = x;
-		ci->geom.h = h - (ci->bwidth * 2);
+		ci->geom.y = area.y + mh;
 		ci->geom.w = w - (ci->bwidth * 2);
+		ci->geom.h = h - (ci->bwidth * 2);
 		if (i + 1 == n)
 			ci->geom.w = area.x + area.w -
 			    ci->geom.x - (ci->bwidth * 2);
 		x += w;
-		client_resize(ci, 1);
 		i++;
+		client_resize(ci, 1);
 	}
 }
 
@@ -1015,7 +1036,7 @@ client_vtile(struct client_ctx *cc)
 	struct group_ctx 	*gc = cc->gc;
 	struct screen_ctx 	*sc = cc->sc;
 	struct geom 		 area;
-	int 			 i, n, mw, y, h, w;
+	int 			 i, n, mw, y, w, h;
 
 	if (!gc)
 		return;
@@ -1041,6 +1062,7 @@ client_vtile(struct client_ctx *cc)
 	cc->flags &= ~CLIENT_VMAXIMIZED;
 	cc->geom.x = area.x;
 	cc->geom.y = area.y;
+	cc->geom.w = (area.w - (cc->bwidth * 2)) / 2;
 	cc->geom.h = area.h - (cc->bwidth * 2);
 	client_resize(cc, 1);
 	client_ptrwarp(cc);
@@ -1054,16 +1076,16 @@ client_vtile(struct client_ctx *cc)
 		    ci->flags & CLIENT_IGNORE || (ci == cc))
 			continue;
 		ci->bwidth = Conf.bwidth;
-		ci->geom.y = y;
 		ci->geom.x = area.x + mw;
-		ci->geom.h = h - (ci->bwidth * 2);
+		ci->geom.y = y;
 		ci->geom.w = w - (ci->bwidth * 2);
+		ci->geom.h = h - (ci->bwidth * 2);
 		if (i + 1 == n)
 			ci->geom.h = area.y + area.h -
 			    ci->geom.y - (ci->bwidth * 2);
 		y += h;
-		client_resize(ci, 1);
 		i++;
+		client_resize(ci, 1);
 	}
 }
 

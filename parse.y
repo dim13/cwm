@@ -121,7 +121,7 @@ main		: FONTNAME STRING		{
 			conf->colorize = $2;
 		}
 		| BORDERWIDTH NUMBER {
-			if ($2 < 0 || $2 > UINT_MAX) {
+			if ($2 < 0 || $2 > INT_MAX) {
 				yyerror("invalid borderwidth");
 				YYERROR;
 			}
