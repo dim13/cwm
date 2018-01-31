@@ -171,7 +171,7 @@ kbfunc_client_move_mb(void *ctx, struct cargs *cargs)
 	menu_windraw(sc, cc->win, "%4d, %-4d", cc->geom.x, cc->geom.y);
 
 	while (move) {
-		XWindowEvent(X_Dpy, cc->win, MOUSEMASK, &ev);
+		XMaskEvent(X_Dpy, MOUSEMASK, &ev);
 		switch (ev.type) {
 		case MotionNotify:
 			/* not more than 60 times / second */
@@ -259,7 +259,7 @@ kbfunc_client_resize_mb(void *ctx, struct cargs *cargs)
 
 	menu_windraw(sc, cc->win, "%4d x %-4d", cc->dim.w, cc->dim.h);
 	while (resize) {
-		XWindowEvent(X_Dpy, cc->win, MOUSEMASK, &ev);
+		XMaskEvent(X_Dpy, MOUSEMASK, &ev);
 		switch (ev.type) {
 		case MotionNotify:
 			/* not more than 60 times / second */
@@ -287,6 +287,42 @@ kbfunc_client_resize_mb(void *ctx, struct cargs *cargs)
 
 	/* Make sure the pointer stays within the window. */
 	client_ptr_inbound(cc, 0);
+}
+
+void
+kbfunc_client_snap(void *ctx, struct cargs *cargs)
+{
+	struct client_ctx	*cc = ctx;
+	struct screen_ctx	*sc = cc->sc;
+	struct geom		 area;
+	int			 flags;
+
+	area = screen_area(sc,
+	    cc->geom.x + cc->geom.w / 2,
+	    cc->geom.y + cc->geom.h / 2, CWM_GAP);
+
+	flags = cargs->flag;
+	while (flags) {
+		if (flags & CWM_UP) {
+			cc->geom.y = area.y;
+			flags &= ~CWM_UP;
+		}
+		if (flags & CWM_LEFT) {
+			cc->geom.x = area.x;
+			flags &= ~CWM_LEFT;
+		}
+		if (flags & CWM_RIGHT) {
+			cc->geom.x = area.x + area.w - cc->geom.w -
+			    (cc->bwidth * 2);
+			flags &= ~CWM_RIGHT;
+		}
+		if (flags & CWM_DOWN) {
+			cc->geom.y = area.y + area.h - cc->geom.h -
+			    (cc->bwidth * 2);
+			flags &= ~CWM_DOWN;
+		}
+	}
+	client_move(cc);
 }
 
 void
@@ -463,14 +499,13 @@ kbfunc_menu_cmd(void *ctx, struct cargs *cargs)
 		if ((strcmp(cmd->name, "lock") == 0) ||
 		    (strcmp(cmd->name, "term") == 0))
 			continue;
-		/* search_match_text() needs mi->text */
-		menuq_add(&menuq, cmd, "%s", cmd->name);
+		menuq_add(&menuq, cmd, NULL);
 	}
 
 	if ((mi = menu_filter(sc, &menuq,
 	    (m) ? NULL : "application", NULL,
 	    ((m) ? CWM_MENU_LIST : 0),
-	    search_match_text, search_print_cmd)) != NULL) {
+	    search_match_cmd, search_print_cmd)) != NULL) {
 		cmd = (struct cmd_ctx *)mi->ctx;
 		u_spawn(cmd->path);
 	}
@@ -491,12 +526,12 @@ kbfunc_menu_group(void *ctx, struct cargs *cargs)
 	TAILQ_FOREACH(gc, &sc->groupq, entry) {
 		if (group_holds_only_sticky(gc))
 			continue;
-		menuq_add(&menuq, gc, "%d %s", gc->num, gc->name);
+		menuq_add(&menuq, gc, NULL);
 	}
 
 	if ((mi = menu_filter(sc, &menuq,
 	    (m) ? NULL : "group", NULL, (CWM_MENU_LIST),
-	    search_match_text, search_print_group)) != NULL) {
+	    search_match_group, search_print_group)) != NULL) {
 		gc = (struct group_ctx *)mi->ctx;
 		(group_holds_only_hidden(gc)) ?
 		    group_show(gc) : group_hide(gc);
@@ -633,9 +668,8 @@ kbfunc_menu_ssh(void *ctx, struct cargs *cargs)
 		/* skip hashed hosts */
 		if (strncmp(buf, HASH_MARKER, strlen(HASH_MARKER)) == 0)
 			continue;
-		for (p = buf; *p != ',' && *p != ' ' && p != buf + slen; p++) {
-			/* do nothing */
-		}
+		for (p = buf; *p != ',' && *p != ' ' && p != buf + slen; p++)
+			;
 		/* ignore badness */
 		if (p - buf + 1 > sizeof(hostbuf))
 			continue;
