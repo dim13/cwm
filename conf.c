@@ -20,7 +20,6 @@
 
 #include <sys/types.h>
 #include "queue.h"
-#include <sys/stat.h>
 
 #include <err.h>
 #include <errno.h>
@@ -37,6 +36,21 @@ static const char	*conf_bind_getmask(const char *, unsigned int *);
 static void		 conf_unbind_key(struct conf *, struct bind_ctx *);
 static void		 conf_unbind_mouse(struct conf *, struct bind_ctx *);
 
+static const struct {
+	int		 num;
+	const char	*name;
+} group_binds[] = {
+	{ 0, "nogroup" },
+	{ 1, "one" },
+	{ 2, "two" },
+	{ 3, "three" },
+	{ 4, "four" },
+	{ 5, "five" },
+	{ 6, "six" },
+	{ 7, "seven" },
+	{ 8, "eight" },
+	{ 9, "nine" },
+};
 static int cursor_binds[] = {
 	XC_left_ptr,		/* CF_NORMAL */
 	XC_fleur,		/* CF_MOVE */
@@ -68,7 +82,8 @@ static const struct {
 	{ FUNC_CC(window-lower, client_lower, 0) },
 	{ FUNC_CC(window-raise, client_raise, 0) },
 	{ FUNC_CC(window-hide, client_hide, 0) },
-	{ FUNC_CC(window-delete, client_delete, 0) },
+	{ FUNC_CC(window-close, client_close, 0) },
+	{ FUNC_CC(window-delete, client_close, 0) },
 	{ FUNC_CC(window-htile, client_htile, 0) },
 	{ FUNC_CC(window-vtile, client_vtile, 0) },
 	{ FUNC_CC(window-stick, client_toggle_sticky, 0) },
@@ -124,7 +139,7 @@ static const struct {
 
 	{ FUNC_SC(group-cycle, group_cycle, (CWM_CYCLE_FORWARD)) },
 	{ FUNC_SC(group-rcycle, group_cycle, (CWM_CYCLE_REVERSE)) },
-	{ FUNC_SC(group-toggle-all, group_alltoggle, 0) },
+	{ FUNC_SC(group-toggle-all, group_toggle_all, 0) },
 	{ FUNC_SC(group-toggle-1, group_toggle, 1) },
 	{ FUNC_SC(group-toggle-2, group_toggle, 2) },
 	{ FUNC_SC(group-toggle-3, group_toggle, 3) },
@@ -143,6 +158,15 @@ static const struct {
 	{ FUNC_SC(group-only-7, group_only, 7) },
 	{ FUNC_SC(group-only-8, group_only, 8) },
 	{ FUNC_SC(group-only-9, group_only, 9) },
+	{ FUNC_SC(group-close-1, group_close, 1) },
+	{ FUNC_SC(group-close-2, group_close, 2) },
+	{ FUNC_SC(group-close-3, group_close, 3) },
+	{ FUNC_SC(group-close-4, group_close, 4) },
+	{ FUNC_SC(group-close-5, group_close, 5) },
+	{ FUNC_SC(group-close-6, group_close, 6) },
+	{ FUNC_SC(group-close-7, group_close, 7) },
+	{ FUNC_SC(group-close-8, group_close, 8) },
+	{ FUNC_SC(group-close-9, group_close, 9) },
 
 	{ FUNC_SC(pointer-move-up, ptrmove, (CWM_UP)) },
 	{ FUNC_SC(pointer-move-down, ptrmove, (CWM_DOWN)) },
@@ -195,7 +219,7 @@ static const struct {
 	{ "M-Tab",	"window-cycle" },
 	{ "MS-Tab",	"window-rcycle" },
 	{ "CM-n",	"window-menu-label" },
-	{ "CM-x",	"window-delete" },
+	{ "CM-x",	"window-close" },
 	{ "CM-a",	"group-toggle-all" },
 	{ "CM-0",	"group-toggle-all" },
 	{ "CM-1",	"group-toggle-1" },
@@ -257,7 +281,7 @@ conf_init(struct conf *c)
 	c->bwidth = 1;
 	c->mamount = 1;
 	c->snapdist = 0;
-	c->ngroups = 10;
+	c->ngroups = 0;
 	c->nameqlen = 5;
 
 	TAILQ_INIT(&c->ignoreq);
@@ -469,28 +493,26 @@ conf_screen(struct screen_ctx *sc)
 				warnx("XftColorAllocValue: %s", Conf.color[i]);
 			break;
 		}
-		if (XftColorAllocName(X_Dpy, sc->visual, sc->colormap,
-		    Conf.color[i], &xc)) {
-			sc->xftcolor[i] = xc;
-			XftColorFree(X_Dpy, sc->visual, sc->colormap, &xc);
-		} else {
+		if (!XftColorAllocName(X_Dpy, sc->visual, sc->colormap,
+		    Conf.color[i], &sc->xftcolor[i])) {
 			warnx("XftColorAllocName: %s", Conf.color[i]);
 			XftColorAllocName(X_Dpy, sc->visual, sc->colormap,
 			    color_binds[i], &sc->xftcolor[i]);
 		}
 	}
 
-	sc->menu.win = XCreateSimpleWindow(X_Dpy, sc->rootwin, 0, 0, 1, 1,
-	    Conf.bwidth,
-	    sc->xftcolor[CWM_COLOR_MENU_FG].pixel,
-	    sc->xftcolor[CWM_COLOR_MENU_BG].pixel);
-
-	sc->menu.xftdraw = XftDrawCreate(X_Dpy, sc->menu.win,
-	    sc->visual, sc->colormap);
-	if (sc->menu.xftdraw == NULL)
-		errx(1, "%s: XftDrawCreate", __func__);
-
 	conf_grab_kbd(sc->rootwin);
+}
+
+void
+conf_group(struct screen_ctx *sc)
+{
+	unsigned int	 i;
+
+	for (i = 0; i < nitems(group_binds); i++) {
+		group_init(sc, group_binds[i].num, group_binds[i].name);
+		Conf.ngroups++;
+	}
 }
 
 static const char *
